@@ -16,7 +16,7 @@ typedef uint8_t u8;
 //////////////////////////////////////////
 
 
-static u8 *easyOs_getSaveFolderLocation() {
+static u8 *getSaveFileLocation() {
 	u8 *result = 0;
 #if _WIN32
 	PWSTR  win32_wideString_utf16 = 0; 
@@ -69,6 +69,6 @@ static u8 *easyOs_getSaveFolderLocation() {
 }
 
 int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hInstPrev, PSTR cmdline, int cmdshow) {
-	u8 *string = easyOs_getSaveFolderLocation();
+	u8 *string = getSaveFileLocation();
 	OutputDebugStringA((LPCSTR)string);
 }
