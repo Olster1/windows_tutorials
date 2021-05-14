@@ -1,0 +1,1 @@
+cl main.cpp /link Shell32.lib Ole32.lib
