@@ -23,7 +23,7 @@ static u8 *getSaveFileLocation() {
 
 	//NOTE(ollie): Get the folder name
 	if(SHGetKnownFolderPath(
-	  FOLDERID_LocalAppData,
+	  FOLDERID_SavedGames,
 	  KF_FLAG_CREATE,
 	  0,
 	  (PWSTR *)&win32_wideString_utf16

@@ -2,18 +2,28 @@
 #define NOMINMAX
 #define UNICODE
 #include <windows.h>
+#include <stdio.h>
 
 enum PlatformKeyType {
+    PLATFORM_KEY_NULL,
     PLATFORM_KEY_UP,
     PLATFORM_KEY_DOWN,
     PLATFORM_KEY_RIGHT,
     PLATFORM_KEY_LEFT,
+    PLATFORM_KEY_X,
+    PLATFORM_KEY_Z,
     
     // NOTE: Everything before here
     PLATFORM_KEY_TOTAL_COUNT
 };
 
-static bool global_keyDownStates[PLATFORM_KEY_TOTAL_COUNT];
+struct PlatformKeyState {
+    bool isDown;
+    int pressedCount;
+    int releasedCount;
+};
+
+static PlatformKeyState global_keyDownStates[PLATFORM_KEY_TOTAL_COUNT];
 
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     LRESULT result = 0;
@@ -25,19 +35,38 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
     } else if(msg == WM_KEYDOWN || msg == WM_KEYUP) {
 
         bool keyDown = (msg == WM_KEYDOWN);
-        
-        //NOTE: handle our keyboard input
-        if(wparam == VK_UP) {        
-            global_keyDownStates[PLATFORM_KEY_UP] = keyDown;
+    
+        WPARAM vk_code = wparam;        
 
-        } else if(wparam == VK_DOWN) {
-            global_keyDownStates[PLATFORM_KEY_DOWN] = keyDown;
+        PlatformKeyType keyType = PLATFORM_KEY_NULL; 
 
-        } else if(wparam == VK_LEFT) {
-           global_keyDownStates[PLATFORM_KEY_LEFT] = keyDown;
+        //NOTE: match our internal key names to the vk code
+        if(vk_code == VK_UP) { 
+            keyType = PLATFORM_KEY_UP;
+        } else if(vk_code == VK_DOWN) {
+            keyType = PLATFORM_KEY_DOWN;
+        } else if(vk_code == VK_LEFT) {
+            keyType = PLATFORM_KEY_LEFT;
+        } else if(vk_code == VK_RIGHT) {
+            keyType = PLATFORM_KEY_RIGHT;
+        } else if(vk_code == 'Z') {
+            keyType = PLATFORM_KEY_Z;
+        } else if(vk_code == 'X') {
+            keyType = PLATFORM_KEY_X;
+        }
 
-        } else if(wparam == VK_RIGHT) {
-          global_keyDownStates[PLATFORM_KEY_RIGHT] = keyDown;
+        //NOTE: Key pressed, is down and release events  
+        if(keyType != PLATFORM_KEY_NULL) {
+
+            //NOTE: We can use the last isDown state to see if it was down
+           int wasPressed = (keyDown && !global_keyDownStates[keyType].isDown) ? 1 : 0;
+            int wasReleased = (!keyDown && global_keyDownStates[keyType].isDown) ? 1 : 0;
+
+            global_keyDownStates[keyType].pressedCount += wasPressed;
+            global_keyDownStates[keyType].releasedCount += wasReleased;
+
+            global_keyDownStates[keyType].isDown = keyDown;
+
         }
 
     } else {
@@ -91,35 +120,42 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hInstPrev, PSTR cmdline, int
     bool running = true;
 
     while(running) {
+        
+        //NOTE: Clear the key pressed and released count before processing our messages
+        for(int i = 0; i < PLATFORM_KEY_TOTAL_COUNT; ++i) {
+            global_keyDownStates[i].pressedCount = 0;
+            global_keyDownStates[i].releasedCount = 0;
+        }
+
     	MSG message = {};
         while(PeekMessageW(&message, 0, 0, 0, PM_REMOVE)) {
+            //NOTE: Handle any quit messages
             if(message.message == WM_QUIT) {
                 running = false;
             }
+
             TranslateMessage(&message);
             DispatchMessageW(&message);
         }
 
-        //NOTE: Use our global array to access the key down states 
-        if(global_keyDownStates[PLATFORM_KEY_UP]) {
-            //NOTE: Move Character forward
-            OutputDebugStringA("Key Up Down\n");
+        //NOTE: Cast the spell the number of times the user pressed the key in the last frame
+        for(int i = 0; i < global_keyDownStates[PLATFORM_KEY_Z].pressedCount; ++i) {
+            char buffer[256];
+            sprintf(buffer, "Cast Spell %d\n", i);
+            OutputDebugStringA(buffer);
         }
 
-        if(global_keyDownStates[PLATFORM_KEY_DOWN]) {
-            //NOTE: Move Character down
-            OutputDebugStringA("Key Down Down\n");
+        if(global_keyDownStates[PLATFORM_KEY_Z].releasedCount > 0) {
+            char buffer[256];
+            sprintf(buffer, "Release Count %d\n", global_keyDownStates[PLATFORM_KEY_Z].releasedCount);
+            OutputDebugStringA(buffer);
         }
 
-        if(global_keyDownStates[PLATFORM_KEY_LEFT]) {
-            //NOTE: Move Character left
-            OutputDebugStringA("Key Left Down\n");
-        }
 
-        if(global_keyDownStates[PLATFORM_KEY_RIGHT]) {
-            //NOTE: Move Character right
-            OutputDebugStringA("Key Right Down\n");
-        }
+
+        //NOTE: Sleep for a bit to demonstrate multiple key presses 
+        Sleep(200); //200 milliseconds or 5fps is actually long enough to register more than one key press in a frame.
+
     }
     
 

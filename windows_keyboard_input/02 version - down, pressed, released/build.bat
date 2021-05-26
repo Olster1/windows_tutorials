@@ -1,1 +1,1 @@
-cl main.cpp /link user32.lib
+cl -Od -nologo -FC -Zi -Gm- -GR- -EHa- -Zo -Oi -Zi main.cpp /link user32.lib
