@@ -62,42 +62,18 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         PostQuitMessage(0);
 
     } if(msg == WM_CHAR) {
-        WPARAM utf16_character = wparam;
-
-        //NOTE: Convert the utf16 character to utf8
-
-        //NOTE: Get the size of the utf8 character in bytes
-        int bufferSize_inBytes = WideCharToMultiByte(
-          CP_UTF8,
-          0,
-          (LPCWCH )&utf16_character,
-          1, //NOTE: character not null terminated, so specify it's only one character long
-          (LPSTR)global_platformInput.textInput_utf8, 
-          0,
-          0, 
-          0
-        );
+       
+        //NOTE: Asci characters as utf8 have a one to one mapping from the utf-16 so we can just cast the value 
+        uint8_t asci_character = (uint8_t)wparam;
 
         // //NOTE: See if we can still fit the character in our buffer. We don't do <= to the max buffer size since we want to keep one character to create a null terminated string.
-        if((global_platformInput.textInput_bytesUsed + bufferSize_inBytes) < PLATFORM_MAX_TEXT_BUFFER_SIZE_IN_BYTES) {
-                
-            //NOTE: Add the utf8 value of the character to our buffer
-            int bytesWritten = WideCharToMultiByte(
-              CP_UTF8,
-              0,
-              (LPCWCH )&utf16_character,
-              1,
-              (LPSTR)(global_platformInput.textInput_utf8 + global_platformInput.textInput_bytesUsed), 
-              bufferSize_inBytes,
-              0, 
-              0
-            );
-
-            //NOTE: Increment the buffer size
-            global_platformInput.textInput_bytesUsed += bufferSize_inBytes;
+        if((global_platformInput.textInput_bytesUsed + 1) < PLATFORM_MAX_TEXT_BUFFER_SIZE_IN_BYTES) {
+            
+            //NOTE: Add the character to the buffer
+            global_platformInput.textInput_utf8[global_platformInput.textInput_bytesUsed++] = asci_character; 
 
             //NOTE: Make the string null terminated
-            assert(bufferSize_inBytes < PLATFORM_MAX_TEXT_BUFFER_SIZE_IN_BYTES);
+            assert(global_platformInput.textInput_bytesUsed < PLATFORM_MAX_TEXT_BUFFER_SIZE_IN_BYTES);
             global_platformInput.textInput_utf8[global_platformInput.textInput_bytesUsed] = '\0';
         }
 

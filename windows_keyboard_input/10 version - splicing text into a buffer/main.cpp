@@ -4,6 +4,7 @@
 #include <windows.h>
 #include <stdint.h> //for the type uint8_t for our text input buffer
 #include <assert.h>
+#include <stdio.h>
 
 
 enum PlatformKeyType {
@@ -14,6 +15,8 @@ enum PlatformKeyType {
     PLATFORM_KEY_LEFT,
     PLATFORM_KEY_X,
     PLATFORM_KEY_Z,
+
+    PLATFORM_KEY_BACKSPACE,
 
     PLATFORM_MOUSE_LEFT_BUTTON,
     PLATFORM_MOUSE_RIGHT_BUTTON,
@@ -29,6 +32,7 @@ struct PlatformKeyState {
 };
 
 #define PLATFORM_MAX_TEXT_BUFFER_SIZE_IN_BYTES 256
+#define PLATFORM_MAX_KEY_INPUT_BUFFER 16
 
 struct PlatformInputState {
 
@@ -44,7 +48,8 @@ struct PlatformInputState {
     uint8_t textInput_utf8[PLATFORM_MAX_TEXT_BUFFER_SIZE_IN_BYTES];
     int textInput_bytesUsed;
 
-    WCHAR low_surrogate;
+    PlatformKeyType keyInputCommandBuffer[PLATFORM_MAX_KEY_INPUT_BUFFER];
+    int keyInputCommand_count;
 };
 
 static PlatformInputState global_platformInput;
@@ -57,96 +62,23 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         PostQuitMessage(0);
 
     } if(msg == WM_CHAR) {
-        WCHAR utf16_character = (WCHAR)wparam;
-
-        int characterCount = 0;
-        WCHAR characters[2];
-
-
-        //NOTE: Build the utf-16 string
-        if (IS_LOW_SURROGATE(utf16_character))
-        {
-            if (global_platformInput.low_surrogate != 0)
-            {
-                // received two low surrogates in a row, just ignore the first one
-            }
-            global_platformInput.low_surrogate = utf16_character;
-        }
-        else if (IS_HIGH_SURROGATE(utf16_character))
-        {
-            if (global_platformInput.low_surrogate == 0)
-            {
-                // received hight surrogate without low one first, just ignore it
-                
-            }
-            else if (!IS_SURROGATE_PAIR(utf16_character, global_platformInput.low_surrogate))
-            {
-                // invalid surrogate pair, ignore
-            } 
-            else 
-            {
-                //NOTE: We got a surrogate pair. The string we convert to utf8 will be 2 characters long - 32bits not 16bits
-                characterCount = 2;
-                characters[0] = global_platformInput.low_surrogate;
-                characters[1] = utf16_character;
-
-            }
-        }
-        else
-        {
-            if (global_platformInput.low_surrogate != 0)
-            {
-                // expected high surrogate after low one, but received normal char
-                // accept normal char message (ignore low surrogate)
-            }
-
-            //NOTE: always add non-pair characters. The string will be one character long - 16bits
-            characterCount = 1;
-            characters[0] = utf16_character;
-
-            global_platformInput.low_surrogate = 0;
-        }
-
-        if(characterCount > 0) {
         
-            //NOTE: Convert the utf16 character to utf8
+        //NOTE: Dont add backspace to the buffer
+        if(wparam != VK_BACK) {
 
-            //NOTE: Get the size of the utf8 character in bytes
-            int bufferSize_inBytes = WideCharToMultiByte(
-              CP_UTF8,
-              0,
-              (LPCWCH)characters,
-              characterCount,
-              (LPSTR)global_platformInput.textInput_utf8, 
-              0,
-              0, 
-              0
-            );
+            //NOTE: Asci characters as utf8 have a one to one mapping from the utf-16 so we can just cast the value 
+            uint8_t asci_character = (uint8_t)wparam;
 
-            //NOTE: See if we can still fit the character in our buffer. We don't do <= to the max buffer size since we want to keep one character to create a null terminated string.
-            if((global_platformInput.textInput_bytesUsed + bufferSize_inBytes) < PLATFORM_MAX_TEXT_BUFFER_SIZE_IN_BYTES) {
-                    
-                //NOTE: Add the utf8 value of the character to our buffer
-                int bytesWritten = WideCharToMultiByte(
-                  CP_UTF8,
-                  0,
-                  (LPCWCH)characters,
-                  characterCount,
-                  (LPSTR)(global_platformInput.textInput_utf8 + global_platformInput.textInput_bytesUsed), 
-                  bufferSize_inBytes,
-                  0, 
-                  0
-                );
-
-                //NOTE: Increment the buffer size
-                global_platformInput.textInput_bytesUsed += bufferSize_inBytes;
+            // //NOTE: See if we can still fit the character in our buffer. We don't do <= to the max buffer size since we want to keep one character to create a null terminated string.
+            if((global_platformInput.textInput_bytesUsed + 1) < PLATFORM_MAX_TEXT_BUFFER_SIZE_IN_BYTES) {
+                
+                //NOTE: Add the character to the buffer
+                global_platformInput.textInput_utf8[global_platformInput.textInput_bytesUsed++] = asci_character; 
 
                 //NOTE: Make the string null terminated
-                assert(bufferSize_inBytes < PLATFORM_MAX_TEXT_BUFFER_SIZE_IN_BYTES);
+                assert(global_platformInput.textInput_bytesUsed < PLATFORM_MAX_TEXT_BUFFER_SIZE_IN_BYTES);
                 global_platformInput.textInput_utf8[global_platformInput.textInput_bytesUsed] = '\0';
             }
-
-            global_platformInput.low_surrogate = 0;
         }
 
     } else if(msg == WM_LBUTTONDOWN) {
@@ -189,6 +121,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
 
         PlatformKeyType keyType = PLATFORM_KEY_NULL; 
 
+        bool addToCommandBuffer = false;
+
         //NOTE: match our internal key names to the vk code
         if(vk_code == VK_UP) { 
             keyType = PLATFORM_KEY_UP;
@@ -196,12 +130,28 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
             keyType = PLATFORM_KEY_DOWN;
         } else if(vk_code == VK_LEFT) {
             keyType = PLATFORM_KEY_LEFT;
+
+            //NOTE: Also add the message to our command buffer if it was a KEYDOWN message
+            addToCommandBuffer = keyIsDown;
         } else if(vk_code == VK_RIGHT) {
             keyType = PLATFORM_KEY_RIGHT;
+
+            //NOTE: Also add the message to our command buffer if it was a KEYDOWN message
+            addToCommandBuffer = keyIsDown;
         } else if(vk_code == 'Z') {
             keyType = PLATFORM_KEY_Z;
         } else if(vk_code == 'X') {
             keyType = PLATFORM_KEY_X;
+        } else if(vk_code == VK_BACK) {
+            keyType = PLATFORM_KEY_BACKSPACE;
+
+            //NOTE: Also add the message to our command buffer if it was a KEYDOWN message
+            addToCommandBuffer = keyIsDown;
+        }
+
+        //NOTE: Add the command message here 
+        if(addToCommandBuffer && global_platformInput.keyInputCommand_count < PLATFORM_MAX_KEY_INPUT_BUFFER) {
+            global_platformInput.keyInputCommandBuffer[global_platformInput.keyInputCommand_count++] = keyType;
         }
 
 
@@ -264,6 +214,15 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hInstPrev, PSTR cmdline, int
         }
     }
 
+    //NOTE: Create a input buffer to store text input across frames.
+    #define MAX_INPUT_BUFFER_SIZE 128
+    int textBuffer_count = 0;
+    uint8_t textBuffer[MAX_INPUT_BUFFER_SIZE] = {};
+
+    int cursorAt = 0;  //NOTE: Where our cursor position is
+    //////////////////////////////////////////////////////////////
+
+
     bool running = true;
 
     while(running) {
@@ -271,6 +230,9 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hInstPrev, PSTR cmdline, int
         //NOTE: Clear the input text buffer to empty
         global_platformInput.textInput_bytesUsed = 0;
         global_platformInput.textInput_utf8[0] = '\0';
+
+        //NOTE: Clear our input command buffer
+        global_platformInput.keyInputCommand_count = 0;
 
         
         //NOTE: Clear the key pressed and released count before processing our messages
@@ -299,8 +261,85 @@ int APIENTRY WinMain(HINSTANCE hInstance, HINSTANCE hInstPrev, PSTR cmdline, int
             global_platformInput.mouseY = (float)(mouse.y);
         }
 
-        OutputDebugStringA((LPCSTR)global_platformInput.textInput_utf8);
+        //NOTE: Find the smallest size we can add to the buffer without overflowing it
+        int bytesToMoveAboveCursor = global_platformInput.textInput_bytesUsed;
+        int spaceLeftInBuffer = (MAX_INPUT_BUFFER_SIZE - textBuffer_count - 1); //minus one to put a null terminating character in
+        if(bytesToMoveAboveCursor > spaceLeftInBuffer) {
+            bytesToMoveAboveCursor = spaceLeftInBuffer;
+        }
+
+        //NOTE: Get all characters above cursor and save them in a buffer
+        char tempBuffer[MAX_INPUT_BUFFER_SIZE] = {};
+        int tempBufferCount = 0;
+        for(int i = cursorAt; i < textBuffer_count; i++) {
+            tempBuffer[tempBufferCount++] = textBuffer[i];
+        }
+
+        //NOTE: Copy new string into the buffer
+        for(int i = 0; i < bytesToMoveAboveCursor; ++i) {
+            textBuffer[cursorAt + i] = global_platformInput.textInput_utf8[i];
+        }
         
+        //NOTE: Advance the cursor and the buffer count
+        textBuffer_count += bytesToMoveAboveCursor;
+        cursorAt += bytesToMoveAboveCursor;
+
+        //NOTE: Replace characters above the cursor that we would have written over
+        for(int i = 0; i < tempBufferCount; ++i) {
+            textBuffer[cursorAt + i] = tempBuffer[i]; 
+        }
+
+
+        //NOTE: Process our command buffer
+        for(int i = 0; i < global_platformInput.keyInputCommand_count; ++i) {
+            PlatformKeyType command = global_platformInput.keyInputCommandBuffer[i];
+            if(command == PLATFORM_KEY_BACKSPACE) {
+                
+                //NOTE: can't backspace a character if cursor is in front of text
+                if(cursorAt > 0 && textBuffer_count > 0) {
+                    //NOTE: Move all characters in front of cursor down
+                    int charactersToMoveCount = textBuffer_count - cursorAt;
+                    for(int i = 0; i < charactersToMoveCount; ++i) {
+                        int indexInFront = cursorAt + i;
+                        assert(indexInFront < textBuffer_count); //make sure not buffer overflow
+                        textBuffer[cursorAt + i - 1] = textBuffer[indexInFront]; //get the one in front 
+                    }
+
+                    cursorAt--;
+                    textBuffer_count--;
+                }
+                
+            }
+
+            if(command == PLATFORM_KEY_LEFT) {
+                //NOTE: Move cursor left 
+                if(cursorAt > 0) {
+                    cursorAt--;
+                }
+            }
+
+            if(command == PLATFORM_KEY_RIGHT) {
+                //NOTE: Move cursor right 
+                if(cursorAt < textBuffer_count) {
+                    cursorAt++;
+                }
+            }       
+        }  
+
+        //NOTE: put in a null terminating character at the end
+        assert(textBuffer_count < MAX_INPUT_BUFFER_SIZE);
+        textBuffer[textBuffer_count] = '\0';  
+
+        OutputDebugStringA((LPCSTR)textBuffer);
+
+        OutputDebugStringA("\n");
+
+        char cursorAtBuffer[16];
+        sprintf(cursorAtBuffer, "cursorAt: %d\n", cursorAt);
+        OutputDebugStringA((LPCSTR)cursorAtBuffer);        
+
+        
+            
 
         //NOTE: Sleep for a bit
         Sleep(200);
