@@ -43,6 +43,8 @@ struct PlatformInputState {
     //NOTE: Text Input
     uint8_t textInput_utf8[PLATFORM_MAX_TEXT_BUFFER_SIZE_IN_BYTES];
     int textInput_bytesUsed;
+
+    WCHAR low_surrogate;
 };
 
 static PlatformInputState global_platformInput;
@@ -55,43 +57,96 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
         PostQuitMessage(0);
 
     } if(msg == WM_CHAR) {
-        WPARAM utf16_character = wparam;
+        WCHAR utf16_character = (WCHAR)wparam;
 
-        //NOTE: Convert the utf16 character to utf8
+        int characterCount = 0;
+        WCHAR characters[2];
 
-        //NOTE: Get the size of the utf8 character in bytes
-        int bufferSize_inBytes = WideCharToMultiByte(
-          CP_UTF8,
-          0,
-          (LPCWCH )&utf16_character,
-          1, //NOTE: character not null terminated, so specify it's only one character long
-          (LPSTR)global_platformInput.textInput_utf8, 
-          0,
-          0, 
-          0
-        );
 
-        // //NOTE: See if we can still fit the character in our buffer. We don't do <= to the max buffer size since we want to keep one character to create a null terminated string.
-        if((global_platformInput.textInput_bytesUsed + bufferSize_inBytes) < PLATFORM_MAX_TEXT_BUFFER_SIZE_IN_BYTES) {
+        //NOTE: Build the utf-16 string
+        if (IS_LOW_SURROGATE(utf16_character))
+        {
+            if (global_platformInput.low_surrogate != 0)
+            {
+                // received two low surrogates in a row, just ignore the first one
+            }
+            global_platformInput.low_surrogate = utf16_character;
+        }
+        else if (IS_HIGH_SURROGATE(utf16_character))
+        {
+            if (global_platformInput.low_surrogate == 0)
+            {
+                // received hight surrogate without low one first, just ignore it
                 
-            //NOTE: Add the utf8 value of the character to our buffer
-            int bytesWritten = WideCharToMultiByte(
+            }
+            else if (!IS_SURROGATE_PAIR(utf16_character, global_platformInput.low_surrogate))
+            {
+                // invalid surrogate pair, ignore
+            } 
+            else 
+            {
+                //NOTE: We got a surrogate pair. The string we convert to utf8 will be 2 characters long - 32bits not 16bits
+                characterCount = 2;
+                characters[0] = global_platformInput.low_surrogate;
+                characters[1] = utf16_character;
+
+            }
+        }
+        else
+        {
+            if (global_platformInput.low_surrogate != 0)
+            {
+                // expected high surrogate after low one, but received normal char
+                // accept normal char message (ignore low surrogate)
+            }
+
+            //NOTE: always add non-pair characters. The string will be one character long - 16bits
+            characterCount = 1;
+            characters[0] = utf16_character;
+
+            global_platformInput.low_surrogate = 0;
+        }
+
+        if(characterCount > 0) {
+        
+            //NOTE: Convert the utf16 character to utf8
+
+            //NOTE: Get the size of the utf8 character in bytes
+            int bufferSize_inBytes = WideCharToMultiByte(
               CP_UTF8,
               0,
-              (LPCWCH )&utf16_character,
-              1,
-              (LPSTR)(global_platformInput.textInput_utf8 + global_platformInput.textInput_bytesUsed), 
-              bufferSize_inBytes,
+              (LPCWCH)characters,
+              characterCount,
+              (LPSTR)global_platformInput.textInput_utf8, 
+              0,
               0, 
               0
             );
 
-            //NOTE: Increment the buffer size
-            global_platformInput.textInput_bytesUsed += bufferSize_inBytes;
+            //NOTE: See if we can still fit the character in our buffer. We don't do <= to the max buffer size since we want to keep one character to create a null terminated string.
+            if((global_platformInput.textInput_bytesUsed + bufferSize_inBytes) < PLATFORM_MAX_TEXT_BUFFER_SIZE_IN_BYTES) {
+                    
+                //NOTE: Add the utf8 value of the character to our buffer
+                int bytesWritten = WideCharToMultiByte(
+                  CP_UTF8,
+                  0,
+                  (LPCWCH)characters,
+                  characterCount,
+                  (LPSTR)(global_platformInput.textInput_utf8 + global_platformInput.textInput_bytesUsed), 
+                  bufferSize_inBytes,
+                  0, 
+                  0
+                );
 
-            //NOTE: Make the string null terminated
-            assert(bufferSize_inBytes < PLATFORM_MAX_TEXT_BUFFER_SIZE_IN_BYTES);
-            global_platformInput.textInput_utf8[global_platformInput.textInput_bytesUsed] = '\0';
+                //NOTE: Increment the buffer size
+                global_platformInput.textInput_bytesUsed += bufferSize_inBytes;
+
+                //NOTE: Make the string null terminated
+                assert(bufferSize_inBytes < PLATFORM_MAX_TEXT_BUFFER_SIZE_IN_BYTES);
+                global_platformInput.textInput_utf8[global_platformInput.textInput_bytesUsed] = '\0';
+            }
+
+            global_platformInput.low_surrogate = 0;
         }
 
     } else if(msg == WM_LBUTTONDOWN) {
