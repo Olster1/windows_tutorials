@@ -92,7 +92,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wparam, LPARAM lparam) {
                 }
                 else if (!IS_SURROGATE_PAIR(utf16_character, global_platformInput.low_surrogate))
                 {
-                    // invalid surrogate pair, ignore
+                    // invalid surrogate pair, ignore the two pairs
+                    global_platformInput.low_surrogate = 0;
                 } 
                 else 
                 {
