@@ -1,1 +1,1 @@
-cl -Od -Zi main.cpp /link Shell32.lib Ole32.lib
+cl -Od -Zi main.cpp /link Shlwapi.lib
